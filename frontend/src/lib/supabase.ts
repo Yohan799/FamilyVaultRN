@@ -4,8 +4,8 @@ import { supabaseStorageAdapter } from './storage';
 import type { Database } from './types';
 
 // Supabase configuration
-const SUPABASE_URL = 'https://caxhxynhrpjuchcksnws.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNheGh4eW5ocnBqdWNoY2tzbndzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3MTk3MTMsImV4cCI6MjA4NjI5NTcxM30.wpEavXANBnTH8GIl9tB3Qrr0GSENaYFHjueEzrTVmpE';
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
 // Lazy singleton for Supabase client
 let _supabase: SupabaseClient<Database> | null = null;

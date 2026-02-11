@@ -1,8 +1,7 @@
 {
-  "name": "FamilyVaultRN",
-  "displayName": "FamilyVaultRN",
   "expo": {
     "name": "FamilyVaultRN",
+    "displayName": "FamilyVaultRN",
     "slug": "familyvaultrn",
     "version": "1.0.0",
     "platforms": [
