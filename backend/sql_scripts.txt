@@ -1,0 +1,707 @@
+## Complete Database Migration Script
+
+Your database has **21 tables**, all currently with minimal data (1 row each). Below is the full SQL script to recreate everything -- schema, functions, triggers, indexes, RLS policies, and storage buckets -- on a new Supabase project.
+
+---
+
+### Database Overview
+
+| Table | Rows | Description |
+|-------|------|-------------|
+| profiles | 1 | User profiles |
+| categories | 1 | Document categories |
+| subcategories | 1 | Document subcategories |
+| documents | 1 | Uploaded documents |
+| folders | 1 | Folder organization |
+| nominees | 1 | Trusted nominees |
+| access_controls | 1 | Nominee access permissions |
+| time_capsules | 1 | Scheduled messages |
+| inactivity_triggers | 1 | Inactivity detection config |
+| inactivity_alerts | 1 | Alert history |
+| activity_logs | 1 | User activity audit trail |
+| notifications | 1 | In-app notifications |
+| backups | 1 | Backup records |
+| device_tokens | 1 | Push notification tokens |
+| user_sessions | 1 | Active sessions |
+| quick_actions | 1 | Dashboard quick actions |
+| verification_tokens | 1 | Nominee verification |
+| otp_verifications | 1 | OTP records |
+| password_reset_otps | 1 | Password reset tokens |
+| signup_verification_tokens | 1 | Signup verification |
+| two_fa_verifications | 1 | 2FA verification records |
+
+---
+
+### How to Use
+
+1. Create a new Supabase project
+2. Go to **SQL Editor** in the Supabase dashboard
+3. Run **Part 1** (Schema) first
+4. Run **Part 2** (Functions) next
+5. Run **Part 3** (Triggers, Indexes, RLS)
+6. Run **Part 4** (Storage Buckets) -- do this in the Storage section
+7. Run **Part 5** (Data Export) -- export from old, import to new
+8. Set up the **auth trigger** for `handle_new_user` on `auth.users`
+
+---
+
+### Part 1: Schema (Tables)
+
+```sql
+-- ==========================================
+-- PART 1: CREATE ALL TABLES
+-- ==========================================
+
+-- 1. profiles (no FK dependencies)
+CREATE TABLE public.profiles (
+  id uuid NOT NULL PRIMARY KEY,
+  email text NOT NULL,
+  full_name text,
+  phone text,
+  date_of_birth date,
+  profile_image_url text,
+  two_factor_enabled boolean DEFAULT false,
+  biometric_enabled boolean DEFAULT false,
+  auto_lock_minutes integer DEFAULT 5,
+  app_lock_type text,
+  app_pin_hash text,
+  backup_frequency text DEFAULT 'weekly',
+  push_notifications_enabled boolean DEFAULT false,
+  email_verified boolean DEFAULT false,
+  additional_emails jsonb DEFAULT '[]'::jsonb,
+  last_login timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- 2. categories
+CREATE TABLE public.categories (
+  id text NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  name text NOT NULL,
+  icon text,
+  icon_bg_color text,
+  is_custom boolean DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  deleted_at timestamp with time zone
+);
+
+-- 3. subcategories
+CREATE TABLE public.subcategories (
+  id text NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  category_id text NOT NULL,
+  user_id uuid NOT NULL,
+  name text NOT NULL,
+  icon text,
+  icon_bg_color text,
+  is_custom boolean DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  deleted_at timestamp with time zone
+);
+
+-- 4. folders
+CREATE TABLE public.folders (
+  id text NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  category_id text,
+  subcategory_id text,
+  parent_folder_id text,
+  name text NOT NULL,
+  folder_type text DEFAULT 'folder',
+  icon text,
+  icon_bg_color text,
+  description text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  deleted_at timestamp with time zone
+);
+
+-- 5. documents
+CREATE TABLE public.documents (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  category_id text,
+  subcategory_id text,
+  folder_id text,
+  file_name text NOT NULL,
+  file_type text,
+  file_size bigint,
+  file_url text NOT NULL,
+  external_source text,
+  view_count integer DEFAULT 0,
+  download_count integer DEFAULT 0,
+  uploaded_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  deleted_at timestamp with time zone
+);
+
+-- 6. nominees
+CREATE TABLE public.nominees (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  full_name text NOT NULL,
+  email text NOT NULL,
+  phone text,
+  relation text,
+  status text DEFAULT 'pending',
+  avatar_url text,
+  verified_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  deleted_at timestamp with time zone
+);
+
+-- 7. access_controls
+CREATE TABLE public.access_controls (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  nominee_id uuid NOT NULL,
+  resource_type text NOT NULL,
+  resource_id text NOT NULL,
+  access_level text NOT NULL,
+  granted_at timestamp with time zone NOT NULL DEFAULT now(),
+  UNIQUE (nominee_id, resource_type, resource_id, access_level)
+);
+
+-- 8. verification_tokens
+CREATE TABLE public.verification_tokens (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  nominee_id uuid NOT NULL,
+  token text NOT NULL,
+  expires_at timestamp with time zone NOT NULL,
+  used_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- 9. time_capsules
+CREATE TABLE public.time_capsules (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  title text NOT NULL,
+  message text NOT NULL,
+  recipient_email text NOT NULL,
+  phone text,
+  attachment_url text,
+  release_date date NOT NULL,
+  status text DEFAULT 'scheduled',
+  released_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  deleted_at timestamp with time zone
+);
+
+-- 10. inactivity_triggers
+CREATE TABLE public.inactivity_triggers (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  is_active boolean DEFAULT false,
+  inactive_days_threshold integer DEFAULT 7,
+  email_enabled boolean DEFAULT true,
+  sms_enabled boolean DEFAULT false,
+  custom_message text,
+  emergency_access_granted boolean DEFAULT false,
+  emergency_granted_at timestamp with time zone,
+  last_activity_at timestamp with time zone DEFAULT now(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- 11. inactivity_alerts
+CREATE TABLE public.inactivity_alerts (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  alert_stage text NOT NULL,
+  recipient_type text NOT NULL,
+  recipient_email text,
+  custom_message text,
+  inactive_days integer NOT NULL,
+  sent_at timestamp with time zone NOT NULL DEFAULT now(),
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- 12. activity_logs
+CREATE TABLE public.activity_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  action_type text NOT NULL,
+  resource_type text,
+  resource_id text,
+  details jsonb,
+  ip_address text,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- 13. notifications
+CREATE TABLE public.notifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  title text NOT NULL,
+  body text NOT NULL,
+  type text NOT NULL DEFAULT 'general',
+  data jsonb DEFAULT '{}'::jsonb,
+  is_read boolean NOT NULL DEFAULT false,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- 14. backups
+CREATE TABLE public.backups (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  backup_type text NOT NULL,
+  file_path text NOT NULL,
+  file_size bigint,
+  status text NOT NULL DEFAULT 'completed',
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- 15. device_tokens
+CREATE TABLE public.device_tokens (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  token text NOT NULL,
+  platform text NOT NULL DEFAULT 'android',
+  device_name text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  UNIQUE (user_id, token),
+  UNIQUE (token)
+);
+
+-- 16. user_sessions
+CREATE TABLE public.user_sessions (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  device_name text NOT NULL,
+  device_type text NOT NULL,
+  ip_address text,
+  location text,
+  is_current boolean DEFAULT false,
+  last_active_at timestamp with time zone NOT NULL DEFAULT now(),
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- 17. quick_actions
+CREATE TABLE public.quick_actions (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  action_key text NOT NULL,
+  title text NOT NULL,
+  subtitle text,
+  icon text,
+  route text,
+  is_enabled boolean DEFAULT true,
+  is_custom boolean DEFAULT false,
+  display_order integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now()
+);
+
+-- 18. otp_verifications
+CREATE TABLE public.otp_verifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  nominee_email text NOT NULL,
+  otp_code text NOT NULL,
+  expires_at timestamp with time zone NOT NULL,
+  verified_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- 19. password_reset_otps
+CREATE TABLE public.password_reset_otps (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  email text NOT NULL,
+  otp_hash text NOT NULL,
+  reset_token text,
+  expires_at timestamp with time zone NOT NULL,
+  verified_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- 20. signup_verification_tokens
+CREATE TABLE public.signup_verification_tokens (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  email text NOT NULL,
+  token text NOT NULL,
+  user_id text,
+  expires_at timestamp with time zone NOT NULL,
+  used_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now()
+);
+
+-- 21. two_fa_verifications
+CREATE TABLE public.two_fa_verifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL,
+  email text NOT NULL,
+  otp_code text NOT NULL,
+  attempt_count integer DEFAULT 0,
+  expires_at timestamp with time zone NOT NULL,
+  verified_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now()
+);
+```
+
+---
+
+### Part 2: Functions
+
+```sql
+-- ==========================================
+-- PART 2: DATABASE FUNCTIONS
+-- ==========================================
+
+-- updated_at trigger function
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public' AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+-- Auto-create profile on signup
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public' AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', '')
+  );
+  RETURN NEW;
+END;
+$$;
+
+-- Helper: check nominee ownership
+CREATE OR REPLACE FUNCTION public.is_user_nominee(_nominee_id uuid, _user_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path TO 'public' AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.nominees
+    WHERE id = _nominee_id AND user_id = _user_id AND deleted_at IS NULL
+  )
+$$;
+
+-- Soft delete: category (cascades to subcategories, folders, documents, access_controls)
+CREATE OR REPLACE FUNCTION public.soft_delete_category(_category_id text, _user_id uuid)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public' AS $$
+DECLARE _now timestamp with time zone := NOW();
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.categories WHERE id = _category_id AND user_id = _user_id AND deleted_at IS NULL
+  ) THEN RETURN false; END IF;
+  
+  DELETE FROM public.access_controls WHERE user_id = _user_id AND (
+    (resource_type = 'category' AND resource_id = _category_id)
+    OR (resource_type = 'subcategory' AND resource_id IN (SELECT id FROM public.subcategories WHERE category_id = _category_id AND user_id = _user_id))
+    OR (resource_type = 'folder' AND resource_id IN (SELECT id FROM public.folders WHERE category_id = _category_id AND user_id = _user_id))
+    OR (resource_type = 'document' AND resource_id IN (SELECT id::text FROM public.documents WHERE category_id = _category_id AND user_id = _user_id))
+  );
+  
+  UPDATE public.documents SET deleted_at = _now WHERE category_id = _category_id AND user_id = _user_id AND deleted_at IS NULL;
+  UPDATE public.folders SET deleted_at = _now WHERE category_id = _category_id AND user_id = _user_id AND deleted_at IS NULL;
+  UPDATE public.subcategories SET deleted_at = _now WHERE category_id = _category_id AND user_id = _user_id AND deleted_at IS NULL;
+  UPDATE public.categories SET deleted_at = _now WHERE id = _category_id AND user_id = _user_id;
+  RETURN true;
+END;
+$$;
+
+-- Soft delete: subcategory (cascades to folders, documents, access_controls)
+CREATE OR REPLACE FUNCTION public.soft_delete_subcategory(_subcategory_id text, _category_id text, _user_id uuid)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public' AS $$
+DECLARE _now timestamp with time zone := NOW();
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.subcategories WHERE id = _subcategory_id AND category_id = _category_id AND user_id = _user_id AND deleted_at IS NULL
+  ) THEN RETURN false; END IF;
+  
+  DELETE FROM public.access_controls WHERE user_id = _user_id AND (
+    (resource_type = 'subcategory' AND resource_id = _subcategory_id)
+    OR (resource_type = 'folder' AND resource_id IN (SELECT id FROM public.folders WHERE subcategory_id = _subcategory_id AND user_id = _user_id))
+    OR (resource_type = 'document' AND resource_id IN (SELECT id::text FROM public.documents WHERE subcategory_id = _subcategory_id AND user_id = _user_id))
+  );
+  
+  UPDATE public.documents SET deleted_at = _now WHERE subcategory_id = _subcategory_id AND user_id = _user_id AND deleted_at IS NULL;
+  UPDATE public.folders SET deleted_at = _now WHERE subcategory_id = _subcategory_id AND user_id = _user_id AND deleted_at IS NULL;
+  UPDATE public.subcategories SET deleted_at = _now WHERE id = _subcategory_id AND user_id = _user_id;
+  RETURN true;
+END;
+$$;
+
+-- Soft delete: document
+CREATE OR REPLACE FUNCTION public.soft_delete_document(_document_id uuid, _user_id uuid)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public' AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.documents WHERE id = _document_id AND user_id = _user_id AND deleted_at IS NULL
+  ) THEN RETURN false; END IF;
+  
+  DELETE FROM public.access_controls WHERE resource_type = 'document' AND resource_id = _document_id::text AND user_id = _user_id;
+  UPDATE public.documents SET deleted_at = NOW() WHERE id = _document_id AND user_id = _user_id;
+  RETURN true;
+END;
+$$;
+
+-- Soft delete: nominee
+CREATE OR REPLACE FUNCTION public.soft_delete_nominee(_nominee_id uuid, _user_id uuid)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public' AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.nominees WHERE id = _nominee_id AND user_id = _user_id AND deleted_at IS NULL
+  ) THEN RETURN false; END IF;
+  
+  DELETE FROM public.verification_tokens WHERE nominee_id = _nominee_id;
+  DELETE FROM public.access_controls WHERE nominee_id = _nominee_id AND user_id = _user_id;
+  UPDATE public.nominees SET deleted_at = NOW() WHERE id = _nominee_id AND user_id = _user_id;
+  RETURN true;
+END;
+$$;
+
+-- Soft delete: time capsule
+CREATE OR REPLACE FUNCTION public.soft_delete_time_capsule(_capsule_id uuid, _user_id uuid)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public' AS $$
+DECLARE capsule_exists boolean;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1 FROM public.time_capsules WHERE id = _capsule_id AND user_id = _user_id AND deleted_at IS NULL
+  ) INTO capsule_exists;
+  IF NOT capsule_exists THEN RETURN false; END IF;
+  UPDATE public.time_capsules SET deleted_at = NOW(), updated_at = NOW() WHERE id = _capsule_id AND user_id = _user_id;
+  RETURN true;
+END;
+$$;
+```
+
+---
+
+### Part 3: Triggers, Indexes, and RLS Policies
+
+```sql
+-- ==========================================
+-- PART 3A: TRIGGERS
+-- ==========================================
+
+CREATE TRIGGER update_documents_updated_at BEFORE UPDATE ON public.documents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_folders_updated_at BEFORE UPDATE ON public.folders FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_subcategories_updated_at BEFORE UPDATE ON public.subcategories FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_time_capsules_updated_at BEFORE UPDATE ON public.time_capsules FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_inactivity_triggers_updated_at BEFORE UPDATE ON public.inactivity_triggers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_quick_actions_updated_at BEFORE UPDATE ON public.quick_actions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Auth trigger (create profile on signup)
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ==========================================
+-- PART 3B: INDEXES
+-- ==========================================
+
+CREATE INDEX idx_access_controls_resource ON public.access_controls (resource_type, resource_id);
+CREATE INDEX idx_access_controls_nominee_id ON public.access_controls (nominee_id);
+CREATE INDEX idx_access_controls_user_id ON public.access_controls (user_id);
+CREATE INDEX idx_activity_logs_user_id ON public.activity_logs (user_id);
+CREATE INDEX idx_activity_logs_action_type ON public.activity_logs (action_type);
+CREATE INDEX idx_activity_logs_created_at ON public.activity_logs (created_at DESC);
+CREATE INDEX idx_categories_user_id ON public.categories (user_id);
+CREATE INDEX idx_categories_user_deleted ON public.categories (user_id, deleted_at);
+CREATE INDEX idx_documents_user_id ON public.documents (user_id);
+CREATE INDEX idx_documents_category_id ON public.documents (category_id);
+CREATE INDEX idx_documents_subcategory_id ON public.documents (subcategory_id);
+CREATE INDEX idx_documents_folder_id ON public.documents (folder_id);
+CREATE INDEX idx_documents_user_deleted ON public.documents (user_id, deleted_at);
+CREATE INDEX idx_documents_user_category ON public.documents (user_id, category_id) WHERE (deleted_at IS NULL);
+CREATE INDEX idx_folders_user_id ON public.folders (user_id);
+CREATE INDEX idx_folders_category_id ON public.folders (category_id);
+CREATE INDEX idx_folders_subcategory_id ON public.folders (subcategory_id);
+CREATE INDEX idx_folders_folder_type ON public.folders (folder_type);
+CREATE INDEX idx_folders_user_deleted ON public.folders (user_id, deleted_at);
+CREATE INDEX idx_folders_subcategory ON public.folders (subcategory_id) WHERE (deleted_at IS NULL);
+
+-- ==========================================
+-- PART 3C: ENABLE RLS ON ALL TABLES
+-- ==========================================
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subcategories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.folders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nominees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.access_controls ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.verification_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.time_capsules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inactivity_triggers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inactivity_alerts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.backups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.device_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.quick_actions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.otp_verifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.password_reset_otps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.signup_verification_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.two_fa_verifications ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================
+-- PART 3D: RLS POLICIES
+-- ==========================================
+
+-- profiles
+CREATE POLICY "Users can view own profile" ON public.profiles FOR SELECT USING (auth.uid() = id);
+CREATE POLICY "Users can insert own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+-- categories
+CREATE POLICY "Users can view own categories" ON public.categories FOR SELECT USING ((auth.uid() = user_id) AND (deleted_at IS NULL));
+CREATE POLICY "Users can insert own categories" ON public.categories FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own categories" ON public.categories FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own categories" ON public.categories FOR DELETE USING (auth.uid() = user_id);
+
+-- subcategories
+CREATE POLICY "Users can view own subcategories" ON public.subcategories FOR SELECT USING ((auth.uid() = user_id) AND (deleted_at IS NULL));
+CREATE POLICY "Users can insert own subcategories" ON public.subcategories FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own subcategories" ON public.subcategories FOR UPDATE USING (auth.uid() = user_id);
+
+-- documents
+CREATE POLICY "documents_select_policy" ON public.documents FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "documents_insert_policy" ON public.documents FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "documents_update_policy" ON public.documents FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "documents_delete_policy" ON public.documents FOR DELETE USING (auth.uid() = user_id);
+
+-- folders
+CREATE POLICY "Users can view own folders" ON public.folders FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own folders" ON public.folders FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "folders_update_policy" ON public.folders FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can delete own folders" ON public.folders FOR DELETE USING (auth.uid() = user_id);
+
+-- nominees
+CREATE POLICY "Users can view own nominees" ON public.nominees FOR SELECT USING ((auth.uid() = user_id) AND (deleted_at IS NULL));
+CREATE POLICY "Users can insert own nominees" ON public.nominees FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own nominees" ON public.nominees FOR UPDATE USING (auth.uid() = user_id);
+
+-- access_controls
+CREATE POLICY "Users can view own access controls" ON public.access_controls FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own access controls" ON public.access_controls FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own access controls" ON public.access_controls FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own access controls" ON public.access_controls FOR DELETE USING (auth.uid() = user_id);
+
+-- verification_tokens
+CREATE POLICY "Users can view own nominee verification tokens" ON public.verification_tokens FOR SELECT USING (is_user_nominee(nominee_id, auth.uid()));
+CREATE POLICY "Users can insert own nominee verification tokens" ON public.verification_tokens FOR INSERT WITH CHECK (is_user_nominee(nominee_id, auth.uid()));
+CREATE POLICY "Users can update own nominee verification tokens" ON public.verification_tokens FOR UPDATE USING (is_user_nominee(nominee_id, auth.uid()));
+CREATE POLICY "Users can delete own nominee verification tokens" ON public.verification_tokens FOR DELETE USING (is_user_nominee(nominee_id, auth.uid()));
+
+-- time_capsules
+CREATE POLICY "Users can view own time capsules" ON public.time_capsules FOR SELECT USING ((auth.uid() = user_id) AND (deleted_at IS NULL));
+CREATE POLICY "Users can insert own time capsules" ON public.time_capsules FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own time capsules" ON public.time_capsules FOR UPDATE USING (auth.uid() = user_id);
+
+-- inactivity_triggers
+CREATE POLICY "Users can view own inactivity trigger" ON public.inactivity_triggers FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own inactivity trigger" ON public.inactivity_triggers FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own inactivity trigger" ON public.inactivity_triggers FOR UPDATE USING (auth.uid() = user_id);
+
+-- inactivity_alerts
+CREATE POLICY "Users can view own alerts" ON public.inactivity_alerts FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "System can insert alerts" ON public.inactivity_alerts FOR INSERT WITH CHECK (true);
+
+-- activity_logs
+CREATE POLICY "Users can view own activity logs" ON public.activity_logs FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own activity logs" ON public.activity_logs FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- notifications
+CREATE POLICY "Users can view own notifications" ON public.notifications FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own notifications" ON public.notifications FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own notifications" ON public.notifications FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own notifications" ON public.notifications FOR DELETE USING (auth.uid() = user_id);
+
+-- backups
+CREATE POLICY "Users can view own backups" ON public.backups FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own backups" ON public.backups FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can delete own backups" ON public.backups FOR DELETE USING (auth.uid() = user_id);
+
+-- device_tokens
+CREATE POLICY "Users can view own device tokens" ON public.device_tokens FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own device tokens" ON public.device_tokens FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own device tokens" ON public.device_tokens FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own device tokens" ON public.device_tokens FOR DELETE USING (auth.uid() = user_id);
+
+-- user_sessions
+CREATE POLICY "Users can view own sessions" ON public.user_sessions FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own sessions" ON public.user_sessions FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own sessions" ON public.user_sessions FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own sessions" ON public.user_sessions FOR DELETE USING (auth.uid() = user_id);
+
+-- quick_actions
+CREATE POLICY "Users can manage own quick actions" ON public.quick_actions FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- signup_verification_tokens
+CREATE POLICY "Anon can verify tokens" ON public.signup_verification_tokens FOR SELECT USING (true);
+CREATE POLICY "Service role full access" ON public.signup_verification_tokens FOR ALL USING (true) WITH CHECK (true);
+
+-- two_fa_verifications
+CREATE POLICY "Users can view own 2FA verifications" ON public.two_fa_verifications FOR SELECT USING (auth.uid() = user_id);
+
+-- otp_verifications & password_reset_otps: No RLS policies (service role only)
+```
+
+---
+
+### Part 4: Storage Buckets
+
+Create these in the new Supabase project's Storage section:
+
+| Bucket | Public | Purpose |
+|--------|--------|---------|
+| `profile-images` | Yes | User profile photos |
+| `documents` | No | Uploaded documents |
+| `backups` | No | Backup JSON files |
+
+---
+
+### Part 5: Data Migration
+
+To export data from the current database and import into the new one, use `pg_dump` and `psql`:
+
+```bash
+# Export from old (get connection string from old Supabase > Settings > Database)
+pg_dump "postgresql://postgres:[OLD_PASSWORD]@[OLD_HOST]:5432/postgres" \
+  --data-only --schema=public \
+  --no-owner --no-privileges \
+  -f data_export.sql
+
+# Import to new
+psql "postgresql://postgres:[NEW_PASSWORD]@[NEW_HOST]:5432/postgres" \
+  -f data_export.sql
+```
+
+For **storage files** (documents, profile images, backups), you will need to manually download from old storage and re-upload to the new project.
+
+---
+
+### Part 6: Additional Setup Checklist
+
+After running the scripts:
+
+1. **Secrets/Environment Variables** -- Set these in the new project:
+   - `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`
+   - `GOOGLE_API_KEY`, `RESEND_API_KEY` (if still needed)
+   - `CLIENT_ID`, `FIREBASE_SERVICE_ACCOUNT`
+
+2. **Edge Functions** -- Deploy all edge functions from the `supabase/functions/` folder
+
+3. **Auth Settings** -- Configure email templates, redirect URLs, and OAuth providers
+
+4. **Update `.env`** -- Point `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` to the new project

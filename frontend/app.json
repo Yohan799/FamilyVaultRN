@@ -1,0 +1,37 @@
+{
+  "name": "FamilyVaultRN",
+  "displayName": "FamilyVaultRN",
+  "expo": {
+    "name": "FamilyVaultRN",
+    "slug": "familyvaultrn",
+    "version": "1.0.0",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "ios": {
+      "bundleIdentifier": "com.familyvaultrn"
+    },
+    "android": {
+      "package": "com.familyvaultrn",
+      "permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Family Vault to use Face ID for biometric authentication."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6037d398-5f04-43e1-bc80-03eff15eb692"
+      }
+    },
+    "owner": "yohan799"
+  }
+}
